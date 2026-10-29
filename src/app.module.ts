@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { AuthModule } from './auth/auth.module';
 import { ClientesModule } from './clientes/clientes.module';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { RolesGuard } from './common/guards/roles.guard';
 import { EnvironmentVariables, validateEnv } from './config/env.validation';
 import { buildDataSourceOptions } from './database/database.config';
 import { ImpuestosModule } from './impuestos/impuestos.module';
@@ -24,12 +26,16 @@ import { VencimientosModule } from './vencimientos/vencimientos.module';
           DB_NAME: config.get('DB_NAME', { infer: true }),
         }),
     }),
+    AuthModule,
     UsuariosModule,
     ClientesModule,
     ImpuestosModule,
     VencimientosModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    // El orden importa: primero se autentica, después se chequea el rol.
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
 })
 export class AppModule {}

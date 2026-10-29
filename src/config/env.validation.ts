@@ -3,6 +3,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsString,
+  Matches,
   Max,
   Min,
   MinLength,
@@ -40,8 +41,11 @@ export class EnvironmentVariables {
   @MinLength(32)
   JWT_SECRET!: string;
 
+  // Formato de jsonwebtoken: segundos ("3600") o número + unidad ("1d", "12h").
   @IsString()
-  @IsNotEmpty()
+  @Matches(/^\d+\s*(ms|s|m|h|d|w|y)?$/i, {
+    message: 'JWT_EXPIRES_IN debe ser segundos o algo como 1d, 12h, 30m',
+  })
   JWT_EXPIRES_IN!: string;
 }
 
