@@ -24,7 +24,6 @@
       "node",
       "jest"
     ],
-    "strictPropertyInitialization": false,
     "rootDir": "./"
   }
 }
