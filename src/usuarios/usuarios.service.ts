@@ -1,11 +1,11 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { hash } from 'bcryptjs';
-import { QueryFailedError, Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
+import { esViolacionUnica } from '../common/utils/db-errors';
 import { Rol, Usuario } from './usuario.entity';
 
 export const BCRYPT_ROUNDS = 10;
-const PG_UNIQUE_VIOLATION = '23505';
 
 export interface CrearUsuarioInput {
   email: string;
@@ -37,14 +37,20 @@ export class UsuariosService {
   /**
    * Crea un usuario con la contraseña hasheada. Lanza 409 si el email ya
    * existe. El resultado no incluye `password`.
+   *
+   * Con `manager`, el insert corre dentro de esa transacción.
    */
-  async crear(input: CrearUsuarioInput): Promise<Usuario> {
+  async crear(
+    input: CrearUsuarioInput,
+    manager?: EntityManager,
+  ): Promise<Usuario> {
+    const usuarios = manager?.getRepository(Usuario) ?? this.usuarios;
     const email = normalizarEmail(input.email);
-    if (await this.usuarios.existsBy({ email })) {
+    if (await usuarios.existsBy({ email })) {
       throw emailEnUso();
     }
 
-    const usuario = this.usuarios.create({
+    const usuario = usuarios.create({
       email,
       nombre: input.nombre,
       rol: input.rol,
@@ -52,13 +58,10 @@ export class UsuariosService {
     });
 
     try {
-      await this.usuarios.save(usuario);
+      await usuarios.save(usuario);
     } catch (error) {
       // Carrera entre el chequeo y el insert: lo resuelve el índice único.
-      if (
-        error instanceof QueryFailedError &&
-        (error.driverError as { code?: string }).code === PG_UNIQUE_VIOLATION
-      ) {
+      if (esViolacionUnica(error, 'uq_usuarios_email')) {
         throw emailEnUso();
       }
       throw error;
