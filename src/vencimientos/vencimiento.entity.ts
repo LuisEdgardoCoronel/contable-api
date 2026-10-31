@@ -17,6 +17,13 @@ export enum EstadoVencimiento {
   PRESENTADO = 'presentado',
 }
 
+/** Estado que expone la API: agrega `vencido` (pendiente con fecha anterior a hoy). */
+export enum EstadoActual {
+  PENDIENTE = 'pendiente',
+  PRESENTADO = 'presentado',
+  VENCIDO = 'vencido',
+}
+
 @Entity('vencimientos')
 @Unique('uq_vencimientos_cliente_impuesto_periodo', [
   'clienteId',
