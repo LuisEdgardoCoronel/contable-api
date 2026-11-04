@@ -105,20 +105,25 @@ export class VencimientosService {
     return this.paginar(qb, query, hoy);
   }
 
-  /** Pendientes que vencen entre hoy y hoy + 30 días (inclusive), por fecha. */
+  /**
+   * Pendientes que vencen entre hoy y hoy + 30 días (inclusive), por fecha.
+   * Excluye los de clientes dados de baja.
+   */
   async proximos(
     user: UsuarioAutenticado,
     query: PaginacionQueryDto,
   ): Promise<Paginado<VencimientoConEstado>> {
     const hoy = hoyArgentina();
-    const qb = this.consultaVisible(user).andWhere(
-      'v.estado = :pendiente AND v.fechaVencimiento BETWEEN :hoy AND :limite',
-      {
-        pendiente: EstadoVencimiento.PENDIENTE,
-        hoy,
-        limite: sumarDias(hoy, DIAS_PROXIMOS),
-      },
-    );
+    const qb = this.consultaVisible(user)
+      .andWhere(
+        'v.estado = :pendiente AND v.fechaVencimiento BETWEEN :hoy AND :limite',
+        {
+          pendiente: EstadoVencimiento.PENDIENTE,
+          hoy,
+          limite: sumarDias(hoy, DIAS_PROXIMOS),
+        },
+      )
+      .andWhere('c.activo = :activo', { activo: true });
     return this.paginar(qb, query, hoy);
   }
 

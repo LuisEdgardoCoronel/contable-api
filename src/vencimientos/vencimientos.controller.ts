@@ -56,7 +56,7 @@ export class VencimientosController {
     status: 200,
     type: VencimientosPaginadosDto,
     description:
-      'Pendientes que vencen entre hoy y hoy + 30 días (hora de Argentina), por fecha',
+      'Pendientes que vencen entre hoy y hoy + 30 días (hora de Argentina), por fecha. Excluye clientes dados de baja',
   })
   proximos(
     @CurrentUser() user: UsuarioAutenticado,

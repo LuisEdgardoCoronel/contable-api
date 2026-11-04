@@ -432,6 +432,37 @@ describe('Vencimientos (e2e)', () => {
       expect(ids).not.toContain(deCliente2);
     });
 
+    it('/proximos excluye los de clientes dados de baja (el listado no)', async () => {
+      const deBaja = await crearCliente(tokenA, '20000000036');
+      const v = (
+        await crearVencimiento(tokenA, {
+          clienteId: deBaja,
+          impuestoId: impuestos.IVA,
+          fechaVencimiento: sumarDias(hoy, 2),
+          periodo: '2026-01',
+        })
+      ).body as VencimientoBody;
+
+      const antes = (
+        (await get(tokenA, '/vencimientos/proximos?limit=100')).body as Pagina
+      ).data.map((x) => x.id);
+      expect(antes).toContain(v.id);
+
+      await http()
+        .delete(`/clientes/${deBaja}`)
+        .auth(tokenA, { type: 'bearer' })
+        .expect(204);
+
+      const despues = (
+        (await get(tokenA, '/vencimientos/proximos?limit=100')).body as Pagina
+      ).data.map((x) => x.id);
+      expect(despues).not.toContain(v.id);
+
+      const listado = (await get(tokenA, `/vencimientos?clienteId=${deBaja}`))
+        .body as Pagina;
+      expect(listado.data.map((x) => x.id)).toEqual([v.id]);
+    });
+
     it('el usuario cliente solo ve los suyos (también en /proximos)', async () => {
       const lista = (await get(tokenCliente1, '/vencimientos?limit=100'))
         .body as Pagina;
