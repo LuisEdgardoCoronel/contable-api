@@ -1,98 +1,195 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# contable-api
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API REST para estudios contables argentinos. Permite al contador administrar su cartera de clientes y los vencimientos impositivos de cada uno (IVA, Ganancias, Ingresos Brutos, Autónomos, Bienes Personales, Monotributo), y darle a cada cliente un acceso de solo lectura para consultar sus propios vencimientos.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Está pensada como backend para un sistema multi-estudio: cada contador ve únicamente su información, y la separación entre estudios se aplica en cada consulta a la base.
 
-## Description
+## Funcionalidades principales
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- **Clientes**: alta, edición, baja lógica y reactivación. Validación de CUIT con dígito verificador, condición frente al IVA, búsqueda por razón social o CUIT y listado paginado.
+- **Vencimientos**: alta por cliente, impuesto y período; marcado como presentado (con fecha de presentación) y notas. El estado `vencido` se calcula automáticamente. Filtros por estado, cliente, impuesto y rango de fechas, y un endpoint de próximos vencimientos (próximos 30 días).
+- **Acceso para clientes**: el contador crea un usuario para cada cliente (email y contraseña inicial). Ese usuario puede loguearse y consultar sus vencimientos, sin poder modificar nada.
+- **Roles**: `admin` (el contador, dueño del estudio) y `cliente` (usuario vinculado a un cliente del estudio).
+- **Impuestos**: catálogo fijo cargado por seed, con su periodicidad (mensual o anual).
+- **Documentación interactiva** con Swagger en `/docs`.
 
-## Project setup
+## Stack tecnológico
+
+| Área | Tecnología |
+|---|---|
+| Runtime | Node.js 26 |
+| Framework | NestJS 12 |
+| Lenguaje | TypeScript 6 (modo `strict`) |
+| Base de datos | PostgreSQL 16 (Docker en local) |
+| ORM | TypeORM, con migraciones |
+| Autenticación | JWT (HS256) + Passport, contraseñas con bcryptjs |
+| Validación | class-validator / class-transformer, variables de entorno validadas al arrancar con @nestjs/config |
+| Documentación | Swagger (@nestjs/swagger) |
+| Tests | Jest + Supertest |
+
+## Modelo de acceso
+
+| | Admin (contador) | Cliente |
+|---|---|---|
+| Clientes | Solo los de su estudio (`cliente.adminId = admin.id`) | Sin acceso (403) |
+| Vencimientos (lectura) | Los de sus clientes | Solo los propios |
+| Vencimientos (crear, editar, borrar) | Sí, sobre sus clientes | No (403) |
+| Impuestos | Lectura | Lectura |
+
+Reglas:
+
+- En esta versión, **un admin equivale a un estudio**.
+- `POST /auth/register` siempre crea un admin. Si el body trae un campo `rol`, se ignora.
+- Los usuarios cliente los crea el admin desde `POST /clientes/:id/acceso`.
+- Si un cliente se da de baja, su usuario deja de poder loguearse, y los tokens que ya tenía dejan de funcionar.
+
+**Aislamiento entre estudios.** Cada consulta filtra en SQL por el estudio del usuario (o por el cliente, si el rol es `cliente`). Un recurso de otro estudio responde **404**, igual que uno inexistente, en lugar de 403: así la API no revela que el recurso existe. Los IDs son UUID, para que no se puedan enumerar.
+
+## Decisiones de diseño destacadas
+
+- **Guards globales.** `JwtAuthGuard` y `RolesGuard` están registrados globalmente, en ese orden. Toda ruta exige JWT salvo las marcadas con `@Public()` (registro y login); las que llevan `@Roles(...)` devuelven 403 si el rol no corresponde. Una ruta nueva nace protegida por defecto.
+- **Token revalidado contra la base.** En cada request, la estrategia JWT vuelve a buscar al usuario: si ya no existe o su cliente está dado de baja, responde 401. La baja corta el acceso de inmediato, sin esperar a que venza el token.
+- **Login sin filtrar información.** Email inexistente, contraseña incorrecta y cliente inactivo responden igual (401). Si el email no existe se compara igualmente contra un hash, para no revelar por tiempo de respuesta qué emails están registrados.
+- **Estado `vencido` calculado, no guardado.** Solo se persisten `pendiente` y `presentado`. Un vencimiento pendiente con fecha anterior a hoy se expone como `vencido` en el campo `estadoActual`. El filtro `?estado=vencido` se resuelve en SQL (`estado = 'pendiente' AND fecha_vencimiento < :hoy`), así que la paginación y el total son correctos.
+- **"Hoy" en hora de Argentina.** La fecha de hoy se calcula siempre en la zona `America/Argentina/Buenos_Aires`, sin depender de la zona horaria del servidor. Las fechas de vencimiento son columnas `date` (`YYYY-MM-DD`, sin hora).
+- **Validación de CUIT.** Se verifican los 11 dígitos y el dígito verificador (módulo 11). Se aceptan guiones y espacios, que se quitan antes de guardar. El CUIT es único por estudio: dos estudios pueden tener al mismo cliente.
+- **Período según el impuesto.** `periodo` debe ser `YYYY-MM` para impuestos mensuales y `YYYY` para anuales. Un índice único evita vencimientos duplicados para el mismo cliente, impuesto y período.
+- **Paginación uniforme.** Todos los listados aceptan `page` y `limit` (por defecto 1 y 20, máximo 100) y responden `{ data, total, page, limit }`.
+- **Validación estricta de entrada.** `ValidationPipe` global con `whitelist`, `forbidNonWhitelisted` y `transform`: un campo desconocido en el body da 400.
+- **Configuración validada.** La app no arranca si falta una variable de entorno o si `JWT_SECRET` tiene menos de 32 caracteres.
+- **Migraciones, nunca `synchronize`.** El esquema se maneja solo con migraciones de TypeORM.
+
+## Cómo correrlo en local
+
+### Requisitos
+
+- Node.js 26 o superior (hay un archivo `.node-version`)
+- Docker con Docker Compose
+
+### Pasos
+
+1. Clonar el repositorio e instalar dependencias:
+
+   ```bash
+   git clone https://github.com/LuisEdgardoCoronel/contable-api.git
+   cd contable-api
+   npm install
+   ```
+
+2. Crear el archivo de entorno a partir del ejemplo:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Generar un `JWT_SECRET` (mínimo 32 caracteres) y pegarlo en `.env`. Por ejemplo, con Node:
+
+   ```bash
+   node -e "console.log(require('node:crypto').randomBytes(48).toString('base64'))"
+   ```
+
+   El resto de los valores de `.env.example` ya coinciden con el `docker-compose.yml`:
+
+   ```env
+   PORT=3000
+   DB_HOST=localhost
+   DB_PORT=5433
+   DB_USER=contable
+   DB_PASSWORD=contable
+   DB_NAME=contable
+   JWT_SECRET=<el valor generado>
+   JWT_EXPIRES_IN=1d
+   ```
+
+4. Levantar PostgreSQL 16 con Docker. Se expone en el puerto **5433** del host (para no chocar con un Postgres local en el 5432) y usa un volumen persistente:
+
+   ```bash
+   docker compose up -d
+   ```
+
+5. Correr las migraciones y cargar el seed de impuestos:
+
+   ```bash
+   npm run migration:run
+   npm run seed
+   ```
+
+   El seed es idempotente: se puede correr más de una vez sin duplicar datos.
+
+6. Arrancar la app en modo desarrollo:
+
+   ```bash
+   npm run start:dev
+   ```
+
+7. Abrir la documentación en [http://localhost:3000/docs](http://localhost:3000/docs). Para probar los endpoints protegidos: registrar un admin con `POST /auth/register`, obtener el token con `POST /auth/login` y cargarlo con el botón **Authorize**.
+
+### Otros scripts
+
+| Script | Uso |
+|---|---|
+| `npm run build` | Compila a `dist/` |
+| `npm run start:prod` | Corre la versión compilada |
+| `npm run migration:generate -- src/database/migrations/<Nombre>` | Genera una migración a partir de los cambios en las entidades |
+| `npm run migration:revert` | Revierte la última migración |
+| `npm run lint` | ESLint (con `--fix`) |
+| `npm run format` | Prettier |
+
+## Endpoints
+
+Todas las rutas requieren `Authorization: Bearer <token>` salvo las marcadas como públicas.
+
+| Método | Ruta | Rol | Descripción |
+|---|---|---|---|
+| POST | `/auth/register` | Público | Registra un admin (estudio). Ignora `rol` en el body |
+| POST | `/auth/login` | Público | Login. Devuelve `{ accessToken }` |
+| GET | `/auth/me` | Autenticado | Perfil del usuario; si es cliente, incluye su `cliente` |
+| GET | `/clientes` | Admin | Lista paginada. Filtros: `activo`, `search` (razón social o CUIT) |
+| GET | `/clientes/:id` | Admin | Detalle de un cliente |
+| POST | `/clientes` | Admin | Crea un cliente |
+| PUT | `/clientes/:id` | Admin | Reemplaza los datos; permite reactivar con `activo: true` |
+| DELETE | `/clientes/:id` | Admin | Baja lógica (204). Su usuario deja de poder loguearse |
+| POST | `/clientes/:id/acceso` | Admin | Crea el usuario cliente vinculado. 409 si ya tiene acceso o está dado de baja |
+| GET | `/vencimientos` | Autenticado | Admin: los de sus clientes; cliente: los suyos. Paginado. Filtros: `estado` (`pendiente`, `presentado`, `vencido`), `clienteId`, `impuestoId`, `desde`, `hasta` |
+| GET | `/vencimientos/proximos` | Autenticado | No presentados que vencen entre hoy y hoy + 30 días, de clientes activos, ordenados por fecha |
+| GET | `/vencimientos/:id` | Autenticado | Detalle de un vencimiento visible para el usuario |
+| POST | `/vencimientos` | Admin | Crea un vencimiento `pendiente` para un cliente propio y activo |
+| PATCH | `/vencimientos/:id` | Admin | Actualiza `estado`, `fechaPresentacion` y `notas` |
+| DELETE | `/vencimientos/:id` | Admin | Elimina un vencimiento (204) |
+| GET | `/impuestos` | Autenticado | Catálogo de impuestos |
+
+Códigos de error habituales: `400` validación, `401` sin token o token inválido, `403` rol insuficiente, `404` recurso inexistente o de otro estudio, `409` duplicado o conflicto de estado.
+
+## Tests
 
 ```bash
-$ npm install
+# Unitarios (src/**/*.spec.ts)
+npm test
+
+# Cobertura de los unitarios
+npm run test:cov
+
+# End-to-end (test/*.e2e-spec.ts)
+npm run test:e2e
 ```
 
-## Compile and run the project
+Los unitarios cubren el cálculo de la fecha de hoy en Argentina (incluido el cambio de día respecto de UTC), la aritmética de fechas y la validación de CUIT.
 
-```bash
-# development
-$ npm run start
+Los e2e levantan la app completa y corren contra la base configurada en `.env`, así que requieren Postgres levantado, las migraciones aplicadas y el seed cargado. Usan emails aleatorios y borran lo que crean al terminar.
 
-# watch mode
-$ npm run start:dev
+Cubren especialmente el **aislamiento de datos**, el riesgo principal del sistema:
 
-# production mode
-$ npm run start:prod
-```
+- Un admin no puede ver, editar, borrar ni dar acceso a clientes de otro estudio (404).
+- Un admin no puede ver, editar ni borrar vencimientos de otro estudio (404).
+- Un usuario cliente solo ve sus propios vencimientos, también en `/vencimientos/proximos`.
+- Un usuario cliente no puede crear, editar ni borrar vencimientos, ni usar `/clientes` (403).
+- La baja de un cliente bloquea su login y también invalida el token que ya tenía.
+- `register` ignora un `rol` enviado en el body y crea un admin.
 
-## Run tests
+También cubren validaciones (CUIT, fechas, período según el impuesto, campos desconocidos), duplicados (409), el cálculo y filtrado del estado `vencido` con paginación, y las reglas de `fechaPresentacion`.
 
-```bash
-# unit tests
-$ npm run test
 
-# e2e tests
-$ npm run test:e2e
 
-# test coverage
-$ npm run test:cov
-```
+## Licencia
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+[MIT](LICENSE)
