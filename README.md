@@ -10,6 +10,7 @@ Está pensada como backend para un sistema multi-estudio: cada contador ve únic
 - **Vencimientos**: alta por cliente, impuesto y período; marcado como presentado (con fecha de presentación) y notas. El estado `vencido` se calcula automáticamente. Filtros por estado, cliente, impuesto y rango de fechas, y un endpoint de próximos vencimientos (próximos 30 días).
 - **Acceso para clientes**: el contador crea un usuario para cada cliente (email y contraseña inicial). Ese usuario puede loguearse y consultar sus vencimientos, sin poder modificar nada.
 - **Roles**: `admin` (el contador, dueño del estudio) y `cliente` (usuario vinculado a un cliente del estudio).
+- **Estadísticas**: un endpoint con el resumen del estudio para un dashboard (clientes activos e inactivos, vencimientos por estado, próximos 30 días, y agrupados por mes y por impuesto).
 - **Impuestos**: catálogo fijo cargado por seed, con su periodicidad (mensual o anual).
 - **Documentación interactiva** con Swagger en `/docs`.
 
@@ -32,6 +33,7 @@ Está pensada como backend para un sistema multi-estudio: cada contador ve únic
 | | Admin (contador) | Cliente |
 |---|---|---|
 | Clientes | Solo los de su estudio (`cliente.adminId = admin.id`) | Sin acceso (403) |
+| Estadísticas | Las de su estudio | Sin acceso (403) |
 | Vencimientos (lectura) | Los de sus clientes | Solo los propios |
 | Vencimientos (crear, editar, borrar) | Sí, sobre sus clientes | No (403) |
 | Impuestos | Lectura | Lectura |
@@ -51,6 +53,8 @@ Reglas:
 - **Token revalidado contra la base.** En cada request, la estrategia JWT vuelve a buscar al usuario: si ya no existe o su cliente está dado de baja, responde 401. La baja corta el acceso de inmediato, sin esperar a que venza el token.
 - **Login sin filtrar información.** Email inexistente, contraseña incorrecta y cliente inactivo responden igual (401). Si el email no existe se compara igualmente contra un hash, para no revelar por tiempo de respuesta qué emails están registrados.
 - **Estado `vencido` calculado, no guardado.** Solo se persisten `pendiente` y `presentado`. Un vencimiento pendiente con fecha anterior a hoy se expone como `vencido` en el campo `estadoActual`. El filtro `?estado=vencido` se resuelve en SQL (`estado = 'pendiente' AND fecha_vencimiento < :hoy`), así que la paginación y el total son correctos.
+- **Estadísticas consistentes con el listado.** `GET /estadisticas` cuenta todo en SQL (`COUNT(*) FILTER (...)` y `GROUP BY`) con el mismo filtro de acceso y las mismas condiciones de estado que `GET /vencimientos`, así que sus números coinciden siempre con los `total` del listado.
+- **Rate limit en el login.** `POST /auth/login` admite 5 intentos por minuto por IP; después responde 429. Los contadores se guardan en memoria, así que el límite es por instancia de la app.
 - **"Hoy" en hora de Argentina.** La fecha de hoy se calcula siempre en la zona `America/Argentina/Buenos_Aires`, sin depender de la zona horaria del servidor. Las fechas de vencimiento son columnas `date` (`YYYY-MM-DD`, sin hora).
 - **Validación de CUIT.** Se verifican los 11 dígitos y el dígito verificador (módulo 11). Se aceptan guiones y espacios, que se quitan antes de guardar. El CUIT es único por estudio: dos estudios pueden tener al mismo cliente.
 - **Período según el impuesto.** `periodo` debe ser `YYYY-MM` para impuestos mensuales y `YYYY` para anuales. Un índice único evita vencimientos duplicados para el mismo cliente, impuesto y período.
@@ -116,13 +120,28 @@ Reglas:
 
    El seed es idempotente: se puede correr más de una vez sin duplicar datos.
 
-6. Arrancar la app en modo desarrollo:
+6. (Opcional) Cargar un estudio de demo:
+
+   ```bash
+   npm run seed:demo
+   ```
+
+   Crea 5 clientes (uno dado de baja) y unos 70 vencimientos con fechas relativas a hoy, para que siempre haya presentados, vencidos, pendientes y próximos. Credenciales:
+
+   | Rol | Email | Contraseña |
+   |---|---|---|
+   | Admin | `demo@example.com` | `demo1234` |
+   | Cliente (Panadería La Espiga SRL) | `cliente.demo@example.com` | `demo1234` |
+
+   Es idempotente: si se vuelve a correr, reemplaza los datos del estudio de demo y los actualiza a la fecha de hoy. No toca otros estudios y se niega a correr con `NODE_ENV=production`.
+
+7. Arrancar la app en modo desarrollo:
 
    ```bash
    npm run start:dev
    ```
 
-7. Abrir la documentación en [http://localhost:3000/docs](http://localhost:3000/docs). Para probar los endpoints protegidos: registrar un admin con `POST /auth/register`, obtener el token con `POST /auth/login` y cargarlo con el botón **Authorize**.
+8. Abrir la documentación en [http://localhost:3000/docs](http://localhost:3000/docs). Para probar los endpoints protegidos: obtener un token con `POST /auth/login` (con las credenciales de demo o con un admin creado con `POST /auth/register`) y cargarlo con el botón **Authorize**.
 
 ### Otros scripts
 
@@ -132,6 +151,7 @@ Reglas:
 | `npm run start:prod` | Corre la versión compilada |
 | `npm run migration:generate -- src/database/migrations/<Nombre>` | Genera una migración a partir de los cambios en las entidades |
 | `npm run migration:revert` | Revierte la última migración |
+| `npm run seed:demo` | Carga o restablece el estudio de demo |
 | `npm run lint` | ESLint (con `--fix`) |
 | `npm run format` | Prettier |
 
@@ -142,7 +162,7 @@ Todas las rutas requieren `Authorization: Bearer <token>` salvo las marcadas com
 | Método | Ruta | Rol | Descripción |
 |---|---|---|---|
 | POST | `/auth/register` | Público | Registra un admin (estudio). Ignora `rol` en el body |
-| POST | `/auth/login` | Público | Login. Devuelve `{ accessToken }` |
+| POST | `/auth/login` | Público | Login. Devuelve `{ accessToken }`. Máximo 5 intentos por minuto por IP (después, 429) |
 | GET | `/auth/me` | Autenticado | Perfil del usuario; si es cliente, incluye su `cliente` |
 | GET | `/clientes` | Admin | Lista paginada. Filtros: `activo`, `search` (razón social o CUIT) |
 | GET | `/clientes/:id` | Admin | Detalle de un cliente |
@@ -157,8 +177,35 @@ Todas las rutas requieren `Authorization: Bearer <token>` salvo las marcadas com
 | PATCH | `/vencimientos/:id` | Admin | Actualiza `estado`, `fechaPresentacion` y `notas` |
 | DELETE | `/vencimientos/:id` | Admin | Elimina un vencimiento (204) |
 | GET | `/impuestos` | Autenticado | Catálogo de impuestos |
+| GET | `/estadisticas` | Admin | Resumen para el dashboard. Query opcional `desde`/`hasta` (`YYYY-MM-DD`, por defecto los últimos 6 meses) para los agrupamientos por mes y por impuesto |
 
-Códigos de error habituales: `400` validación, `401` sin token o token inválido, `403` rol insuficiente, `404` recurso inexistente o de otro estudio, `409` duplicado o conflicto de estado.
+Códigos de error habituales: `400` validación, `401` sin token o token inválido, `403` rol insuficiente, `404` recurso inexistente o de otro estudio, `409` duplicado o conflicto de estado, `429` demasiados intentos de login.
+
+### Ejemplo: `GET /estadisticas`
+
+Los conteos de `vencimientos` son totales (sin rango de fechas, incluidos clientes dados de baja); `proximos30Dias` excluye los clientes dados de baja, igual que `/vencimientos/proximos`. `porMes` incluye los meses sin vencimientos, en cero, y `porImpuesto` solo los impuestos con vencimientos en el rango, ordenados por nombre.
+
+```json
+{
+  "hoy": "2026-11-05",
+  "rango": { "desde": "2026-06-01", "hasta": "2026-11-30" },
+  "clientes": { "activos": 4, "inactivos": 1 },
+  "vencimientos": { "pendientes": 18, "vencidos": 6, "presentados": 43, "proximos30Dias": 8 },
+  "porMes": [
+    { "mes": "2026-06", "pendientes": 0, "vencidos": 0, "presentados": 9 },
+    { "mes": "2026-10", "pendientes": 0, "vencidos": 4, "presentados": 5 },
+    { "mes": "2026-11", "pendientes": 9, "vencidos": 0, "presentados": 0 }
+  ],
+  "porImpuesto": [
+    {
+      "impuesto": { "id": "cba9ef92-011e-48cd-b743-33725cac7177", "codigo": "IVA", "nombre": "IVA" },
+      "pendientes": 3, "vencidos": 1, "presentados": 14
+    }
+  ]
+}
+```
+
+(Respuesta recortada: con el rango por defecto `porMes` trae los 6 meses.)
 
 ## Tests
 
@@ -185,8 +232,11 @@ Cubren especialmente el **aislamiento de datos**, el riesgo principal del sistem
 - Un usuario cliente no puede crear, editar ni borrar vencimientos, ni usar `/clientes` (403).
 - La baja de un cliente bloquea su login y también invalida el token que ya tenía.
 - `register` ignora un `rol` enviado en el body y crea un admin.
+- Las estadísticas de un admin no cuentan datos de otro estudio, y un usuario cliente no puede pedirlas (403).
 
-También cubren validaciones (CUIT, fechas, período según el impuesto, campos desconocidos), duplicados (409), el cálculo y filtrado del estado `vencido` con paginación, y las reglas de `fechaPresentacion`.
+También cubren validaciones (CUIT, fechas, período según el impuesto, campos desconocidos), duplicados (409), el cálculo y filtrado del estado `vencido` con paginación, las reglas de `fechaPresentacion`, que las estadísticas coincidan con los totales del listado y el 429 del login.
+
+El rate limit del login está desactivado en los e2e (todos los requests salen de la misma IP), salvo en el test que lo verifica.
 
 
 

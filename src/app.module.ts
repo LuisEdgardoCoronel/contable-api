@@ -8,6 +8,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { RolesGuard } from './common/guards/roles.guard';
 import { EnvironmentVariables, validateEnv } from './config/env.validation';
 import { buildDataSourceOptions } from './database/database.config';
+import { EstadisticasModule } from './estadisticas/estadisticas.module';
 import { ImpuestosModule } from './impuestos/impuestos.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { VencimientosModule } from './vencimientos/vencimientos.module';
@@ -31,6 +32,7 @@ import { VencimientosModule } from './vencimientos/vencimientos.module';
     ClientesModule,
     ImpuestosModule,
     VencimientosModule,
+    EstadisticasModule,
   ],
   providers: [
     // El orden importa: primero se autentica, después se chequea el rol.

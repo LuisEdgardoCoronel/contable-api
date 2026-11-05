@@ -5,8 +5,10 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ThrottlerGuard } from '@nestjs/throttler';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import type { UsuarioAutenticado } from '../common/decorators/current-user.decorator';
 import { Public } from '../common/decorators/public.decorator';
@@ -37,7 +39,11 @@ export class AuthController {
     return this.authService.register(dto);
   }
 
+  // Rate limit por IP (ver AuthModule). Detrás de un proxy (Railway) hay que
+  // configurar `trust proxy` en Express; si no, req.ip es la del proxy y todos
+  // los usuarios comparten el mismo límite.
   @Public()
+  @UseGuards(ThrottlerGuard)
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiResponse({ status: 200, type: LoginResponseDto })
@@ -45,6 +51,10 @@ export class AuthController {
   @ApiResponse({
     status: 401,
     description: 'Credenciales inválidas o cliente dado de baja',
+  })
+  @ApiResponse({
+    status: 429,
+    description: 'Demasiados intentos de login desde esta IP (5 por minuto)',
   })
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);

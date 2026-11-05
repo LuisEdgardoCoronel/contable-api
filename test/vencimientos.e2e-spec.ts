@@ -463,9 +463,34 @@ describe('Vencimientos (e2e)', () => {
     });
 
     it('admin B no ve, edita ni borra vencimientos de A (404)', async () => {
+      // B tiene un vencimiento propio, para que "no ve los de A" no pase por
+      // tener una lista vacía.
+      const propio = (
+        await crearVencimiento(tokenB, {
+          clienteId: clienteB,
+          impuestoId: impuestos.IVA,
+          fechaVencimiento: sumarDias(hoy, 2),
+          periodo: '2026-01',
+        })
+      ).body as VencimientoBody;
+
       const listaB = (await get(tokenB, '/vencimientos?limit=100'))
         .body as Pagina;
-      expect(listaB.total).toBe(0);
+      expect(listaB.data.map((v) => v.id)).toEqual([propio.id]);
+      const proximosB = (await get(tokenB, '/vencimientos/proximos'))
+        .body as Pagina;
+      expect(proximosB.data.map((v) => v.id)).toEqual([propio.id]);
+      const filtrado = (
+        await get(tokenB, `/vencimientos?clienteId=${cliente1}`)
+      ).body as Pagina;
+      expect(filtrado.total).toBe(0);
+
+      // Y A tampoco ve el de B.
+      await get(tokenA, `/vencimientos/${propio.id}`, 404);
+      const listaA = (await get(tokenA, '/vencimientos?limit=100'))
+        .body as Pagina;
+      expect(listaA.data.some((v) => v.id === propio.id)).toBe(false);
+
       await get(tokenB, `/vencimientos/${deHoy}`, 404);
       await http()
         .patch(`/vencimientos/${deHoy}`)
