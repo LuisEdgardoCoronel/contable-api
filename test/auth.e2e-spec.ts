@@ -1,11 +1,9 @@
 import { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
-import { AppModule } from '../src/app.module';
-import { configurarApp } from '../src/app.setup';
+import { borrarDatosDeUsuarios, crearApp } from './utils/crear-app';
 
 // Corre contra la base de .env. Usa emails aleatorios y borra lo que crea.
 
@@ -20,21 +18,12 @@ describe('Auth (e2e)', () => {
   const http = () => request(app.getHttpServer());
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-    app = moduleRef.createNestApplication();
-    configurarApp(app);
-    await app.init();
+    app = await crearApp();
     dataSource = app.get(DataSource);
   });
 
   afterAll(async () => {
-    if (usuariosCreados.length > 0) {
-      await dataSource.query(`DELETE FROM usuarios WHERE id = ANY($1)`, [
-        usuariosCreados,
-      ]);
-    }
+    await borrarDatosDeUsuarios(dataSource, usuariosCreados);
     await app.close();
   });
 
