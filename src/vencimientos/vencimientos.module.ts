@@ -14,6 +14,6 @@ import { VencimientosService } from './vencimientos.service';
   ],
   controllers: [VencimientosController],
   providers: [VencimientosService],
-  exports: [TypeOrmModule],
+  exports: [TypeOrmModule, VencimientosService],
 })
 export class VencimientosModule {}

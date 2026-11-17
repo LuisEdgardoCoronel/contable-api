@@ -1,12 +1,10 @@
 import { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
-import { AppModule } from '../src/app.module';
-import { configurarApp } from '../src/app.setup';
 import { hoyArgentina, sumarDias } from '../src/common/utils/fecha';
+import { borrarDatosDeUsuarios, crearApp } from './utils/crear-app';
 
 // Corre contra la base de .env (con el seed de impuestos). Usa emails
 // aleatorios y borra lo que crea.
@@ -98,12 +96,7 @@ describe('Vencimientos (e2e)', () => {
   }
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-    app = moduleRef.createNestApplication();
-    configurarApp(app);
-    await app.init();
+    app = await crearApp();
     dataSource = app.get(DataSource);
 
     tokenA = await registrarYLoguear(`venc-a-${sufijo}@test.com`);
@@ -129,20 +122,7 @@ describe('Vencimientos (e2e)', () => {
   });
 
   afterAll(async () => {
-    if (usuariosCreados.length > 0) {
-      await dataSource.query(
-        `DELETE FROM vencimientos WHERE cliente_id IN
-           (SELECT id FROM clientes WHERE admin_id = ANY($1))`,
-        [usuariosCreados],
-      );
-      await dataSource.query(
-        `DELETE FROM clientes WHERE admin_id = ANY($1) OR usuario_id = ANY($1)`,
-        [usuariosCreados],
-      );
-      await dataSource.query(`DELETE FROM usuarios WHERE id = ANY($1)`, [
-        usuariosCreados,
-      ]);
-    }
+    await borrarDatosDeUsuarios(dataSource, usuariosCreados);
     await app.close();
   });
 
@@ -483,9 +463,34 @@ describe('Vencimientos (e2e)', () => {
     });
 
     it('admin B no ve, edita ni borra vencimientos de A (404)', async () => {
+      // B tiene un vencimiento propio, para que "no ve los de A" no pase por
+      // tener una lista vacía.
+      const propio = (
+        await crearVencimiento(tokenB, {
+          clienteId: clienteB,
+          impuestoId: impuestos.IVA,
+          fechaVencimiento: sumarDias(hoy, 2),
+          periodo: '2026-01',
+        })
+      ).body as VencimientoBody;
+
       const listaB = (await get(tokenB, '/vencimientos?limit=100'))
         .body as Pagina;
-      expect(listaB.total).toBe(0);
+      expect(listaB.data.map((v) => v.id)).toEqual([propio.id]);
+      const proximosB = (await get(tokenB, '/vencimientos/proximos'))
+        .body as Pagina;
+      expect(proximosB.data.map((v) => v.id)).toEqual([propio.id]);
+      const filtrado = (
+        await get(tokenB, `/vencimientos?clienteId=${cliente1}`)
+      ).body as Pagina;
+      expect(filtrado.total).toBe(0);
+
+      // Y A tampoco ve el de B.
+      await get(tokenA, `/vencimientos/${propio.id}`, 404);
+      const listaA = (await get(tokenA, '/vencimientos?limit=100'))
+        .body as Pagina;
+      expect(listaA.data.some((v) => v.id === propio.id)).toBe(false);
+
       await get(tokenB, `/vencimientos/${deHoy}`, 404);
       await http()
         .patch(`/vencimientos/${deHoy}`)

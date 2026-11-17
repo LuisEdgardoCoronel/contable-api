@@ -9,7 +9,7 @@ import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Cliente } from '../clientes/cliente.entity';
 import type { UsuarioAutenticado } from '../common/decorators/current-user.decorator';
 import { esViolacionUnica } from '../common/utils/db-errors';
-import { hoyArgentina, sumarDias } from '../common/utils/fecha';
+import { hoyArgentina } from '../common/utils/fecha';
 import {
   PaginacionQueryDto,
   Paginado,
@@ -18,6 +18,11 @@ import {
 import { Impuesto, Periodicidad } from '../impuestos/impuesto.entity';
 import { ImpuestosService } from '../impuestos/impuestos.service';
 import { Rol } from '../usuarios/usuario.entity';
+import {
+  CONDICION_ESTADO,
+  CONDICION_PROXIMO,
+  parametrosEstado,
+} from './condiciones';
 import { ActualizarVencimientoDto } from './dto/actualizar-vencimiento.dto';
 import { CrearVencimientoDto } from './dto/crear-vencimiento.dto';
 import { ListarVencimientosQueryDto } from './dto/listar-vencimientos-query.dto';
@@ -28,7 +33,6 @@ import {
 } from './vencimiento.entity';
 
 const UQ_CLIENTE_IMPUESTO_PERIODO = 'uq_vencimientos_cliente_impuesto_periodo';
-export const DIAS_PROXIMOS = 30;
 
 const FORMATO_PERIODO: Record<Periodicidad, RegExp> = {
   [Periodicidad.MENSUAL]: /^\d{4}-(0[1-9]|1[0-2])$/,
@@ -63,24 +67,8 @@ export class VencimientosService {
     const hoy = hoyArgentina();
     const qb = this.consultaVisible(user);
 
-    switch (query.estado) {
-      case EstadoActual.PRESENTADO:
-        qb.andWhere('v.estado = :presentado', {
-          presentado: EstadoVencimiento.PRESENTADO,
-        });
-        break;
-      case EstadoActual.PENDIENTE:
-        qb.andWhere('v.estado = :pendiente AND v.fechaVencimiento >= :hoy', {
-          pendiente: EstadoVencimiento.PENDIENTE,
-          hoy,
-        });
-        break;
-      case EstadoActual.VENCIDO:
-        qb.andWhere('v.estado = :pendiente AND v.fechaVencimiento < :hoy', {
-          pendiente: EstadoVencimiento.PENDIENTE,
-          hoy,
-        });
-        break;
+    if (query.estado) {
+      qb.andWhere(CONDICION_ESTADO[query.estado], parametrosEstado(hoy));
     }
 
     // Para un usuario cliente se suma al filtro por su propio clienteId:
@@ -114,16 +102,10 @@ export class VencimientosService {
     query: PaginacionQueryDto,
   ): Promise<Paginado<VencimientoConEstado>> {
     const hoy = hoyArgentina();
-    const qb = this.consultaVisible(user)
-      .andWhere(
-        'v.estado = :pendiente AND v.fechaVencimiento BETWEEN :hoy AND :limite',
-        {
-          pendiente: EstadoVencimiento.PENDIENTE,
-          hoy,
-          limite: sumarDias(hoy, DIAS_PROXIMOS),
-        },
-      )
-      .andWhere('c.activo = :activo', { activo: true });
+    const qb = this.consultaVisible(user).andWhere(
+      CONDICION_PROXIMO,
+      parametrosEstado(hoy),
+    );
     return this.paginar(qb, query, hoy);
   }
 
@@ -231,17 +213,15 @@ export class VencimientosService {
   }
 
   /**
-   * Query base con el filtro de acceso según el rol, más los datos de
-   * impuesto y cliente que se devuelven en la respuesta.
+   * Vencimientos visibles para el usuario (`v`, con el cliente unido como `c`),
+   * sin columnas seleccionadas: quien la usa elige el `select`. Es la única
+   * fuente del filtro de acceso; también la usan las estadísticas para agregar.
    */
-  private consultaVisible(
-    user: UsuarioAutenticado,
-  ): SelectQueryBuilder<Vencimiento> {
+  consultaAcceso(user: UsuarioAutenticado): SelectQueryBuilder<Vencimiento> {
     const qb = this.vencimientos
       .createQueryBuilder('v')
-      .innerJoin('v.cliente', 'c')
-      .addSelect(['c.id', 'c.razonSocial', 'c.cuit'])
-      .innerJoinAndSelect('v.impuesto', 'i');
+      .select([])
+      .innerJoin('v.cliente', 'c');
 
     if (user.rol === Rol.ADMIN) {
       return qb.where('c.adminId = :adminId', { adminId: user.id });
@@ -251,6 +231,16 @@ export class VencimientosService {
       return qb.where('1 = 0');
     }
     return qb.where('v.clienteId = :clienteId', { clienteId: user.clienteId });
+  }
+
+  /** `consultaAcceso` más los datos que se devuelven: vencimiento, impuesto y cliente reducido. */
+  private consultaVisible(
+    user: UsuarioAutenticado,
+  ): SelectQueryBuilder<Vencimiento> {
+    return this.consultaAcceso(user)
+      .addSelect('v')
+      .addSelect(['c.id', 'c.razonSocial', 'c.cuit'])
+      .innerJoinAndSelect('v.impuesto', 'i');
   }
 
   private async paginar(
