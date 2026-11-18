@@ -1,9 +1,10 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { ThrottlerGuard } from '@nestjs/throttler';
+import { getOptionsToken, ThrottlerGuard } from '@nestjs/throttler';
 import type { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../../src/app.module';
+import { opcionesRateLimitLogin } from '../../src/auth/auth.module';
 import { configurarApp } from '../../src/app.setup';
 
 /**
@@ -11,14 +12,19 @@ import { configurarApp } from '../../src/app.setup';
  *
  * El rate limit del login queda desactivado por defecto: todos los requests de
  * los e2e salen de la misma IP y varios tests se loguean más de 5 veces por
- * minuto. Se prueba aparte con `{ rateLimitLogin: true }`.
+ * minuto. Se prueba aparte con `{ rateLimitLogin: N }`, que lo activa con N
+ * intentos por minuto, sin importar el `LOGIN_RATE_LIMIT` del `.env`.
  */
 export async function crearApp({
-  rateLimitLogin = false,
-}: { rateLimitLogin?: boolean } = {}): Promise<INestApplication<App>> {
+  rateLimitLogin,
+}: { rateLimitLogin?: number } = {}): Promise<INestApplication<App>> {
   const builder = Test.createTestingModule({ imports: [AppModule] });
-  if (!rateLimitLogin) {
+  if (rateLimitLogin === undefined) {
     builder.overrideGuard(ThrottlerGuard).useValue({ canActivate: () => true });
+  } else {
+    builder
+      .overrideProvider(getOptionsToken())
+      .useValue(opcionesRateLimitLogin(rateLimitLogin));
   }
   const moduleRef = await builder.compile();
 

@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule, JwtSignOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerModuleOptions } from '@nestjs/throttler';
 import { ClientesModule } from '../clientes/clientes.module';
 import { EnvironmentVariables } from '../config/env.validation';
 import { UsuariosModule } from '../usuarios/usuarios.module';
@@ -10,9 +10,15 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 
-/** Intentos de login permitidos por IP en cada ventana. */
-export const LOGIN_INTENTOS = 5;
+/** Ventana del rate limit del login. El límite sale de `LOGIN_RATE_LIMIT`. */
 export const LOGIN_VENTANA_MS = 60_000;
+
+/** Opciones del throttler del login: `intentos` por ventana y por IP. */
+export function opcionesRateLimitLogin(
+  intentos: number,
+): ThrottlerModuleOptions {
+  return [{ name: 'login', ttl: LOGIN_VENTANA_MS, limit: intentos }];
+}
 
 @Module({
   imports: [
@@ -22,9 +28,12 @@ export const LOGIN_VENTANA_MS = 60_000;
     // Solo lo usa POST /auth/login (con @UseGuards(ThrottlerGuard)), no es global.
     // Guarda los contadores en memoria: con más de una instancia de la app
     // cada una cuenta por separado (habría que usar un storage compartido).
-    ThrottlerModule.forRoot([
-      { name: 'login', ttl: LOGIN_VENTANA_MS, limit: LOGIN_INTENTOS },
-    ]),
+    // Límite por minuto configurable con LOGIN_RATE_LIMIT (default 5).
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<EnvironmentVariables, true>) =>
+        opcionesRateLimitLogin(config.get('LOGIN_RATE_LIMIT', { infer: true })),
+    }),
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<EnvironmentVariables, true>) => ({

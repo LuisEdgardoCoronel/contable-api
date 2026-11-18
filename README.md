@@ -54,7 +54,7 @@ Reglas:
 - **Login sin filtrar información.** Email inexistente, contraseña incorrecta y cliente inactivo responden igual (401). Si el email no existe se compara igualmente contra un hash, para no revelar por tiempo de respuesta qué emails están registrados.
 - **Estado `vencido` calculado, no guardado.** Solo se persisten `pendiente` y `presentado`. Un vencimiento pendiente con fecha anterior a hoy se expone como `vencido` en el campo `estadoActual`. El filtro `?estado=vencido` se resuelve en SQL (`estado = 'pendiente' AND fecha_vencimiento < :hoy`), así que la paginación y el total son correctos.
 - **Estadísticas consistentes con el listado.** `GET /estadisticas` cuenta todo en SQL (`COUNT(*) FILTER (...)` y `GROUP BY`) con el mismo filtro de acceso y las mismas condiciones de estado que `GET /vencimientos`, así que sus números coinciden siempre con los `total` del listado.
-- **Rate limit en el login.** `POST /auth/login` admite 5 intentos por minuto por IP; después responde 429. Los contadores se guardan en memoria, así que el límite es por instancia de la app.
+- **Rate limit en el login.** `POST /auth/login` admite 5 intentos por minuto por IP (configurable con la variable opcional `LOGIN_RATE_LIMIT`); después responde 429. Los contadores se guardan en memoria, así que el límite es por instancia de la app.
 - **"Hoy" en hora de Argentina.** La fecha de hoy se calcula siempre en la zona `America/Argentina/Buenos_Aires`, sin depender de la zona horaria del servidor. Las fechas de vencimiento son columnas `date` (`YYYY-MM-DD`, sin hora).
 - **Validación de CUIT.** Se verifican los 11 dígitos y el dígito verificador (módulo 11). Se aceptan guiones y espacios, que se quitan antes de guardar. El CUIT es único por estudio: dos estudios pueden tener al mismo cliente.
 - **Período según el impuesto.** `periodo` debe ser `YYYY-MM` para impuestos mensuales y `YYYY` para anuales. Un índice único evita vencimientos duplicados para el mismo cliente, impuesto y período.
@@ -103,6 +103,7 @@ Reglas:
    DB_NAME=contable
    JWT_SECRET=<el valor generado>
    JWT_EXPIRES_IN=1d
+   LOGIN_RATE_LIMIT=5
    ```
 
 4. Levantar PostgreSQL 16 con Docker. Se expone en el puerto **5433** del host (para no chocar con un Postgres local en el 5432) y usa un volumen persistente:

@@ -2,6 +2,7 @@ import { plainToInstance } from 'class-transformer';
 import {
   IsInt,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Matches,
   Max,
@@ -9,6 +10,9 @@ import {
   MinLength,
   validateSync,
 } from 'class-validator';
+
+/** Intentos de login por minuto si no se define `LOGIN_RATE_LIMIT`. */
+export const LOGIN_RATE_LIMIT_DEFAULT = 5;
 
 export class EnvironmentVariables {
   @IsInt()
@@ -47,6 +51,12 @@ export class EnvironmentVariables {
     message: 'JWT_EXPIRES_IN debe ser segundos o algo como 1d, 12h, 30m',
   })
   JWT_EXPIRES_IN!: string;
+
+  // Intentos de POST /auth/login por minuto y por IP. Opcional.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  LOGIN_RATE_LIMIT: number = LOGIN_RATE_LIMIT_DEFAULT;
 }
 
 /**

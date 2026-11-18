@@ -2,17 +2,18 @@ import { INestApplication } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types';
-import { LOGIN_INTENTOS } from '../src/auth/auth.module';
 import { crearApp } from './utils/crear-app';
 
 // App propia con el rate limit activo: los contadores viven en memoria de
 // esta instancia, así que no interfiere con los demás e2e. No crea datos.
+// Fija su propio límite para no depender del LOGIN_RATE_LIMIT del .env.
+const LOGIN_INTENTOS = 3;
 
 describe('Rate limit de login (e2e)', () => {
   let app: INestApplication<App>;
 
   beforeAll(async () => {
-    app = await crearApp({ rateLimitLogin: true });
+    app = await crearApp({ rateLimitLogin: LOGIN_INTENTOS });
   });
 
   afterAll(async () => {
