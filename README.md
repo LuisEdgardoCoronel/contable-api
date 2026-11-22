@@ -153,6 +153,7 @@ Reglas:
 | `npm run migration:generate -- src/database/migrations/<Nombre>` | Genera una migración a partir de los cambios en las entidades |
 | `npm run migration:revert` | Revierte la última migración |
 | `npm run seed:demo` | Carga o restablece el estudio de demo |
+| `npm run limpiar:e2e` | Borra los datos que dejan los e2e (ver [Limpiar datos de e2e](#limpiar-datos-de-e2e)) |
 | `npm run lint` | ESLint (con `--fix`) |
 | `npm run format` | Prettier |
 
@@ -239,6 +240,17 @@ También cubren validaciones (CUIT, fechas, período según el impuesto, campos 
 
 El rate limit del login está desactivado en los e2e (todos los requests salen de la misma IP), salvo en el test que lo verifica.
 
+### Limpiar datos de e2e
+
+```bash
+npm run limpiar:e2e
+```
+
+Borra, en una sola transacción, los usuarios admin cuyo email empieza con `e2e-` y termina en `@example.com` (los que crean, por ejemplo, los e2e de `contable-dashboard`), junto con sus clientes, los usuarios cliente vinculados y los vencimientos de esos clientes, y muestra cuántos registros de cada tipo borró. Nunca toca `demo@example.com` ni `cliente.demo@example.com`, y se niega a correr con `NODE_ENV=production`.
+
+## Panel web
+
+El frontend de esta API es [contable-dashboard](https://github.com/LuisEdgardoCoronel/contable-dashboard), el panel web para el contador y sus clientes.
 
 
 ## Licencia
