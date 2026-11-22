@@ -176,7 +176,7 @@ Todas las rutas requieren `Authorization: Bearer <token>` salvo las marcadas com
 | GET | `/vencimientos/proximos` | Autenticado | No presentados que vencen entre hoy y hoy + 30 días, de clientes activos, ordenados por fecha |
 | GET | `/vencimientos/:id` | Autenticado | Detalle de un vencimiento visible para el usuario |
 | POST | `/vencimientos` | Admin | Crea un vencimiento `pendiente` para un cliente propio y activo |
-| PATCH | `/vencimientos/:id` | Admin | Actualiza `estado`, `fechaPresentacion` y `notas` |
+| PATCH | `/vencimientos/:id` | Admin | Actualiza `estado`, `fechaVencimiento`, `fechaPresentacion` y `notas`. Cambiar la fecha recalcula `estadoActual` (un pendiente puede pasar a vencido o volver a pendiente) y no toca `fechaPresentacion` |
 | DELETE | `/vencimientos/:id` | Admin | Elimina un vencimiento (204) |
 | GET | `/impuestos` | Autenticado | Catálogo de impuestos |
 | GET | `/estadisticas` | Admin | Resumen para el dashboard. Query opcional `desde`/`hasta` (`YYYY-MM-DD`, por defecto los últimos 6 meses) para los agrupamientos por mes y por impuesto |

@@ -1,6 +1,12 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsEnum,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateIf,
+} from 'class-validator';
 import { recortarONull } from '../../common/utils/transforms';
 import { IsFecha } from '../../common/validators/is-fecha.validator';
 import { EstadoVencimiento } from '../vencimiento.entity';
@@ -16,6 +22,16 @@ export class ActualizarVencimientoDto {
   @IsOptional()
   @IsEnum(EstadoVencimiento)
   estado?: EstadoVencimiento;
+
+  @ApiPropertyOptional({
+    example: '2026-12-18',
+    description:
+      'YYYY-MM-DD. Cambia la fecha de vencimiento; `estadoActual` se recalcula con la nueva fecha. No modifica `fechaPresentacion`',
+  })
+  // Como IsOptional, pero sin dejar pasar null (la columna es NOT NULL).
+  @ValidateIf((_, valor) => valor !== undefined)
+  @IsFecha()
+  fechaVencimiento?: string;
 
   @ApiPropertyOptional({
     example: '2026-11-15',

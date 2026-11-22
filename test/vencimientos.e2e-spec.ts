@@ -549,6 +549,18 @@ describe('Vencimientos (e2e)', () => {
       });
     });
 
+    it('cambiar la fecha de un presentado no toca fechaPresentacion', async () => {
+      const nueva = sumarDias(hoy, -30);
+      const res = await patch({ fechaVencimiento: nueva });
+      expect(res.body).toMatchObject({
+        fechaVencimiento: nueva,
+        estado: 'presentado',
+        estadoActual: 'presentado',
+        fechaPresentacion: sumarDias(hoy, -1),
+        notas: 'presentado por web',
+      });
+    });
+
     it('volver a pendiente borra fechaPresentacion', async () => {
       const res = await patch({ estado: 'pendiente', notas: '' });
       expect(res.body).toMatchObject({
@@ -559,8 +571,52 @@ describe('Vencimientos (e2e)', () => {
       await patch({ fechaPresentacion: hoy }, 400);
     });
 
+    it('cambiar la fecha de un pendiente lo pasa a vencido y viceversa', async () => {
+      const ayer = sumarDias(hoy, -1);
+      const vencido = await patch({ fechaVencimiento: ayer });
+      expect(vencido.body).toMatchObject({
+        fechaVencimiento: ayer,
+        estado: 'pendiente',
+        estadoActual: 'vencido',
+        fechaPresentacion: null,
+      });
+      const vencidos = (
+        await get(tokenA, `/vencimientos?estado=vencido&clienteId=${cliente1}`)
+      ).body as Pagina;
+      expect(vencidos.data.map((v) => v.id)).toContain(id);
+
+      const pendiente = await patch({ fechaVencimiento: hoy });
+      expect(pendiente.body).toMatchObject({
+        fechaVencimiento: hoy,
+        estado: 'pendiente',
+        estadoActual: 'pendiente',
+      });
+    });
+
+    it('rechaza una fechaVencimiento inválida → 400', async () => {
+      for (const fecha of [
+        '2026-02-30',
+        '15/11/2026',
+        '2026-1-5',
+        '',
+        null,
+        20261115,
+      ]) {
+        await patch({ fechaVencimiento: fecha }, 400);
+      }
+      const res = await get(tokenA, `/vencimientos/${id}`);
+      expect((res.body as VencimientoBody).fechaVencimiento).toBe(hoy);
+    });
+
+    it('otro admin no puede cambiar la fecha → 404', async () => {
+      await patch({ fechaVencimiento: sumarDias(hoy, 7) }, 404, tokenB);
+      const res = await get(tokenA, `/vencimientos/${id}`);
+      expect((res.body as VencimientoBody).fechaVencimiento).toBe(hoy);
+    });
+
     it('rechaza campos que no se pueden editar', async () => {
-      await patch({ fechaVencimiento: hoy }, 400);
+      await patch({ periodo: '2024' }, 400);
+      await patch({ clienteId: cliente1 }, 400);
       await patch({ estado: 'vencido' }, 400);
     });
 

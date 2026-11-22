@@ -203,6 +203,11 @@ export class VencimientosService {
       cambios.notas = dto.notas;
     }
 
+    // No toca fechaPresentacion; estadoActual se recalcula al leerlo.
+    if (dto.fechaVencimiento !== undefined) {
+      cambios.fechaVencimiento = dto.fechaVencimiento;
+    }
+
     await this.vencimientos.update({ id: actual.id }, cambios);
     return this.obtener(user, id);
   }

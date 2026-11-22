@@ -100,8 +100,17 @@ export class VencimientosController {
   @Patch(':id')
   @Roles(Rol.ADMIN)
   @ApiParam({ name: 'id', format: 'uuid' })
-  @ApiResponse({ status: 200, type: VencimientoResponseDto })
-  @ApiResponse({ status: 400, description: 'Datos inválidos' })
+  @ApiResponse({
+    status: 200,
+    type: VencimientoResponseDto,
+    description:
+      'Vencimiento actualizado, con `estadoActual` recalculado (p. ej. con la nueva `fechaVencimiento`)',
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      'Datos inválidos (fecha inexistente o con otro formato, campo no editable, fechaPresentacion futura)',
+  })
   @ApiResponse({ status: 403, description: 'Solo para admins' })
   @ApiResponse({ status: 404, description: 'Vencimiento no encontrado' })
   actualizar(
